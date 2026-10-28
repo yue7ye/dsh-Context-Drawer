@@ -39,6 +39,25 @@ window.__ModuleLoader__.load({
       done: '已从模型上下文删除：{turns} 条 / {nodes} 个节点，约 {tokens} token',
       skipped: '跳过',
       unsupported: '这个会话当前不能编辑（它没有在运行中）。',
+      detailShow: '展开聊天记录',
+      detailHide: '收起聊天记录',
+      detailLoading: '正在读取聊天记录…',
+      detailFailed: '读取聊天记录失败',
+      detailEmpty: '这一轮没有可显示的聊天记录。',
+      detailActive: '这一轮正在进行中',
+      itemUser: '用户',
+      itemAssistant: '助手',
+      itemToolResult: '工具结果',
+      itemSystem: '系统注入',
+      itemDeveloper: '开发者注入',
+      itemError: '错误',
+      itemRemoved: '已移出上下文',
+      reasoningLabel: '思考过程',
+      toolCallsLabel: '工具调用',
+      expandText: '展开全部',
+      collapseText: '收起',
+      chars: '字',
+      detailCount: '共 {count} 条',
     };
     const en = {
       button: 'Context editor',
@@ -74,6 +93,25 @@ window.__ModuleLoader__.load({
       done: 'Removed from model context: {turns} turns / {nodes} nodes, ~{tokens} tokens',
       skipped: 'Skipped',
       unsupported: 'This session cannot be edited right now (it is not live).',
+      detailShow: 'Show chat log',
+      detailHide: 'Hide chat log',
+      detailLoading: 'Loading chat log…',
+      detailFailed: 'Failed to load chat log',
+      detailEmpty: 'No chat messages in this turn.',
+      detailActive: 'This turn is still in progress',
+      itemUser: 'User',
+      itemAssistant: 'Assistant',
+      itemToolResult: 'Tool result',
+      itemSystem: 'System injection',
+      itemDeveloper: 'Developer injection',
+      itemError: 'Error',
+      itemRemoved: 'Removed from context',
+      reasoningLabel: 'Reasoning',
+      toolCallsLabel: 'Tool calls',
+      expandText: 'Show all',
+      collapseText: 'Collapse',
+      chars: 'chars',
+      detailCount: '{count} messages',
     };
 
     const fallback = (key) => (Object.prototype.hasOwnProperty.call(zh, key) ? zh[key] : key);
@@ -184,6 +222,120 @@ window.__ModuleLoader__.load({
       };
     }
 
+    const DETAIL_KIND_LABELS = {
+      user: 'itemUser',
+      assistant: 'itemAssistant',
+      'tool-result': 'itemToolResult',
+      system: 'itemSystem',
+      developer: 'itemDeveloper',
+    };
+    const DETAIL_KIND_COLORS = {
+      user: 'var(--dsw-alias-state-business-primary, #4d8dff)',
+      assistant: 'var(--dsw-alias-state-success-primary, #3fb950)',
+      'tool-result': 'var(--dsw-alias-state-warning-primary, #d29922)',
+    };
+    const preStyle = {
+      marginTop: 4,
+      padding: '8px 10px',
+      borderRadius: colors.radiusMd,
+      background: colors.hover,
+      color: colors.secondary,
+      fontSize: 12,
+      lineHeight: 1.55,
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'break-word',
+      maxHeight: 280,
+      overflow: 'auto',
+    };
+
+    function DetailItem({ item, translate }) {
+      const [openText, setOpenText] = React.useState(false);
+      const [openReasoning, setOpenReasoning] = React.useState(false);
+      const [openTools, setOpenTools] = React.useState(false);
+      const [openSystem, setOpenSystem] = React.useState(false);
+      const isSystem = item.kind === 'system' || item.kind === 'developer';
+      const text = typeof item.text === 'string' ? item.text : '';
+      const longText = text.length > 600;
+      const shownText = longText && !openText ? `${text.slice(0, 600)}…` : text;
+      const toggleChip = (onClick, label) => h(
+        'button',
+        {
+          type: 'button',
+          onClick,
+          style: { ...chipButton(false), alignSelf: 'flex-start', padding: '1px 8px', fontSize: 11, border: 'none', background: 'transparent', color: colors.secondary },
+        },
+        label,
+      );
+      return h(
+        'div',
+        {
+          style: {
+            borderLeft: `3px solid ${DETAIL_KIND_COLORS[item.kind] ?? colors.border}`,
+            padding: '4px 0 4px 10px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+            opacity: item.removed ? 0.62 : 1,
+          },
+        },
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+          h('span', { style: { color: colors.text, fontSize: 12, fontWeight: 600 } }, translate(DETAIL_KIND_LABELS[item.kind] ?? item.kind)),
+          item.timeLabel ? h('span', { style: { ...metaStyle, fontSize: 11 } }, item.timeLabel) : null,
+          item.isError ? h('span', { style: { color: colors.danger, fontSize: 11 } }, translate('itemError')) : null,
+          item.removed ? h('span', { style: { color: colors.tertiary, fontSize: 11 } }, translate('itemRemoved')) : null,
+          isSystem
+            ? toggleChip(() => setOpenSystem((value) => !value), openSystem ? translate('collapseText') : translate('expandText'))
+            : null,
+        ),
+        text.length === 0
+          ? null
+          : isSystem && !openSystem
+            ? h('div', { style: { ...metaStyle, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, text.slice(0, 160))
+            : h('div', { style: { color: colors.text, fontSize: 12, lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }, shownText),
+        !isSystem && longText
+          ? toggleChip(() => setOpenText((value) => !value), openText ? translate('collapseText') : translate('expandText'))
+          : null,
+        item.reasoning
+          ? toggleChip(
+            () => setOpenReasoning((value) => !value),
+            `${translate('reasoningLabel')}（${item.reasoning.length} ${translate('chars')}）${openReasoning ? ' ▾' : ' ▸'}`,
+          )
+          : null,
+        item.reasoning && openReasoning ? h('pre', { style: preStyle }, item.reasoning) : null,
+        Array.isArray(item.toolCalls) && item.toolCalls.length > 0
+          ? toggleChip(
+            () => setOpenTools((value) => !value),
+            `${translate('toolCallsLabel')}（${item.toolCalls.length}）${openTools ? ' ▾' : ' ▸'}`,
+          )
+          : null,
+        Array.isArray(item.toolCalls) && item.toolCalls.length > 0 && openTools
+          ? h('pre', { style: preStyle }, JSON.stringify(item.toolCalls, null, 2))
+          : null,
+      );
+    }
+
+    function TurnDetail({ detail, translate }) {
+      if (detail.status === 'loading') {
+        return h('div', { style: { ...metaStyle, padding: '8px 12px' } }, translate('detailLoading'));
+      }
+      if (detail.status === 'error') {
+        return h('div', { style: { ...metaStyle, padding: '8px 12px', color: colors.danger } }, `${translate('detailFailed')}：${detail.error}`);
+      }
+      const data = detail.data ?? {};
+      const items = Array.isArray(data.items) ? data.items : [];
+      if (items.length === 0) {
+        return h('div', { style: { ...metaStyle, padding: '8px 12px' } }, translate('detailEmpty'));
+      }
+      return h(
+        'div',
+        { style: { padding: '2px 12px 10px', display: 'flex', flexDirection: 'column', gap: 8, borderTop: `1px dashed ${colors.borderSoft}` } },
+        h('div', { style: { ...metaStyle, paddingTop: 8 } }, fill(translate('detailCount'), { count: items.length })),
+        items.map((item, index) => h(DetailItem, { key: index, item, translate })),
+      );
+    }
+
     async function requestJson(path, init) {
       const response = await fetch(path, { credentials: 'same-origin', ...init });
       let data = null;
@@ -263,6 +415,7 @@ window.__ModuleLoader__.load({
       const [from, setFrom] = React.useState('');
       const [to, setTo] = React.useState('');
       const [selected, setSelected] = React.useState([]);
+      const [expandedTurns, setExpandedTurns] = React.useState({});
       const [busy, setBusy] = React.useState(false);
       const [confirming, setConfirming] = React.useState(false);
       const [notice, setNotice] = React.useState(null);
@@ -273,6 +426,7 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (!open) return undefined;
         setSelected([]);
+        setExpandedTurns({});
         setConfirming(false);
         setNotice(null);
         setFrom('');
@@ -424,53 +578,103 @@ window.__ModuleLoader__.load({
         }
       };
 
-      const rowFor = (entry) => {
+      const toggleDetail = async (turn) => {
+        const existing = expandedTurns[turn];
+        if (existing !== undefined && existing.status === 'ready') {
+          setExpandedTurns((current) => {
+            const next = { ...current };
+            delete next[turn];
+            return next;
+          });
+          return;
+        }
+        if (existing !== undefined && existing.status === 'loading') return;
+        setExpandedTurns((current) => ({ ...current, [turn]: { status: 'loading' } }));
+        try {
+          const detail = await requestJson(`/context-date-pruner/detail?sessionId=${encodeURIComponent(sessionId)}&turn=${turn}`);
+          setExpandedTurns((current) => ({ ...current, [turn]: { status: 'ready', data: detail } }));
+        } catch (error) {
+          setExpandedTurns((current) => ({ ...current, [turn]: { status: 'error', error: error.message } }));
+        }
+      };
+
+      const blockFor = (entry) => {
         const checked = selectedSet.has(entry.turn);
         const disabled = entry.deletable !== true || busy;
+        const detail = expandedTurns[entry.turn];
+        const expanded = detail !== undefined;
         return h(
-          'label',
+          'div',
           {
             key: `turn-${entry.turn}`,
             style: {
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: 10,
-              padding: '8px 12px',
               borderRadius: colors.radiusMd,
               border: `1px solid ${checked ? colors.accent : colors.borderSoft}`,
               background: checked ? colors.hover : 'transparent',
-              cursor: disabled ? 'default' : 'pointer',
-              opacity: entry.deletable === true ? 1 : 0.55,
+              overflow: 'hidden',
             },
           },
-          h('input', {
-            type: 'checkbox',
-            checked,
-            disabled,
-            onChange: () => toggle(entry.turn),
-            style: { marginTop: 3, width: 15, height: 15, accentColor: colors.accent, cursor: disabled ? 'default' : 'pointer' },
-          }),
           h(
             'div',
-            { style: { minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 } },
+            { style: { display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px 8px 12px' } },
             h(
-              'div',
-              { style: { display: 'flex', alignItems: 'baseline', gap: 8 } },
-              h('span', { style: { color: colors.text, fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums' } }, entry.time || ''),
-              h('span', { style: metaStyle }, `${entry.endTime || ''}`),
+              'label',
+              {
+                style: {
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 10,
+                  minWidth: 0,
+                  flex: 1,
+                  cursor: disabled ? 'default' : 'pointer',
+                  opacity: entry.deletable === true ? 1 : 0.55,
+                },
+              },
+              h('input', {
+                type: 'checkbox',
+                checked,
+                disabled,
+                onChange: () => toggle(entry.turn),
+                style: { marginTop: 3, width: 15, height: 15, accentColor: colors.accent, cursor: disabled ? 'default' : 'pointer' },
+              }),
               h(
-                'span',
-                { style: metaStyle },
-                `· ${translate('nodes')} ${Number(entry.nodeCount) || 0} · ${fill(translate('tokens'), { tokens: Number(entry.approxTokens) || 0 })}`,
+                'div',
+                { style: { minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 } },
+                h(
+                  'div',
+                  { style: { display: 'flex', alignItems: 'baseline', gap: 8 } },
+                  h('span', { style: { color: colors.text, fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums' } }, entry.time || ''),
+                  h('span', { style: metaStyle }, `${entry.endTime || ''}`),
+                  h(
+                    'span',
+                    { style: metaStyle },
+                    `· ${translate('nodes')} ${Number(entry.nodeCount) || 0} · ${fill(translate('tokens'), { tokens: Number(entry.approxTokens) || 0 })}`,
+                  ),
+                ),
+                Array.isArray(entry.previews) && entry.previews.length > 0
+                  ? h('div', { style: previewStyle }, entry.previews.map((item) => item.text).join(' / '))
+                  : null,
+                entry.deletable !== true && entry.reason !== undefined
+                  ? h('div', { style: metaStyle }, String(entry.reason))
+                  : null,
               ),
             ),
-            Array.isArray(entry.previews) && entry.previews.length > 0
-              ? h('div', { style: previewStyle }, entry.previews.map((item) => item.text).join(' / '))
-              : null,
-            entry.deletable !== true && entry.reason !== undefined
-              ? h('div', { style: metaStyle }, String(entry.reason))
-              : null,
+            h(
+              'button',
+              {
+                type: 'button',
+                onClick: () => toggleDetail(entry.turn),
+                style: {
+                  ...secondaryButton(false),
+                  padding: '3px 8px',
+                  fontSize: 11,
+                  whiteSpace: 'nowrap',
+                },
+              },
+              expanded && detail.status === 'ready' ? translate('detailHide') : translate('detailShow'),
+            ),
           ),
+          expanded ? h(TurnDetail, { detail, translate }) : null,
         );
       };
 
@@ -505,7 +709,7 @@ window.__ModuleLoader__.load({
                 translate('selectDay'),
               ),
             ),
-            group.entries.map(rowFor),
+            group.entries.map(blockFor),
           )),
         );
       }

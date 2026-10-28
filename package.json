@@ -1,7 +1,7 @@
 {
   "name": "dsh-context-date-pruner",
-  "version": "1.1.0",
-  "description": "DeepSeek Harness plugin: filter a live session by time range and remove individual finished turns (or whole days) from the model-visible conversation context. The chat transcript and the append-only session log are left untouched.",
+  "version": "1.2.0",
+  "description": "DeepSeek Harness plugin: browse a live session chat log turn by turn (expand or collapse the full messages), filter it by time range, and remove individual finished turns (or whole days) from the model-visible conversation context. The chat transcript and the append-only session log are left untouched.",
   "type": "module",
   "license": "MIT",
   "author": "yue7ye",

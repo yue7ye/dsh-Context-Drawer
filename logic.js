@@ -76,6 +76,106 @@ export function messageText(message) {
   return parts.join(' ').replace(/\s+/gu, ' ').trim();
 }
 
+/** 从模型消息里拆出文本、思考、工具调用（供明细视图用）。 */
+export function messageParts(message) {
+  const result = { text: '', reasoning: '', toolCalls: [] };
+  if (message === null || typeof message !== 'object' || !Array.isArray(message.content)) return result;
+  const texts = [];
+  const thoughts = [];
+  for (const block of message.content) {
+    if (block === null || typeof block !== 'object') continue;
+    if (block.type === 'text' && typeof block.text === 'string') {
+      texts.push(block.text);
+    } else if (block.type === 'reasoning' && typeof block.text === 'string') {
+      thoughts.push(block.text);
+    } else if (block.type === 'thinking' && typeof block.thinking === 'string') {
+      thoughts.push(block.thinking);
+    } else if (block.type === 'tool-call') {
+      result.toolCalls.push({
+        callId: typeof block.callId === 'string'
+          ? block.callId
+          : (typeof block.toolCallId === 'string' ? block.toolCallId : ''),
+        name: typeof block.name === 'string'
+          ? block.name
+          : (typeof block.toolName === 'string' ? block.toolName : ''),
+        arguments: block.arguments !== undefined ? block.arguments : block.input,
+      });
+    }
+  }
+  result.text = texts.join('\n').trim();
+  result.reasoning = thoughts.join('\n').trim();
+  return result;
+}
+
+const DETAIL_KIND_BY_EVENT = {
+  'user/message': 'user',
+  'assistant/message': 'assistant',
+  'tool/result': 'tool-result',
+  'system/message': 'system',
+  'developer/message': 'developer',
+};
+
+/**
+ * 生成某一轮对话的详细记录：把这一轮区间内的用户消息、助手回复、思考过程、
+ * 工具调用与结果、系统注入按发生顺序列出来；被移出上下文的内容也会列出来并标记。
+ * 只用于界面展示，不改任何数据。
+ */
+export function buildTurnDetail(session, turnNumber, options = {}) {
+  const timeZone = typeof options.timeZone === 'string' && options.timeZone.length > 0
+    ? options.timeZone
+    : DEFAULT_TIME_ZONE;
+  const sessionId = String(session.id);
+  if (!Number.isInteger(turnNumber) || turnNumber <= 0) {
+    return { sessionId, timeZone, found: false, turn: turnNumber, items: [], itemCount: 0, approxTokens: 0 };
+  }
+  const events = session.snapshotEvents();
+  const { turns } = collectTurns(events);
+  const turn = turns.find((item) => item.turn === turnNumber);
+  if (turn === undefined) {
+    return { sessionId, timeZone, found: false, turn: turnNumber, items: [], itemCount: 0, approxTokens: 0 };
+  }
+  const endSeq = turn.endSeq === null ? events.length - 1 : turn.endSeq;
+  const surfaceSet = new Set(session.surface.nodes);
+  const items = [];
+  for (let seq = turn.startSeq; seq <= endSeq; seq += 1) {
+    const event = events[seq];
+    if (event === undefined) continue;
+    const kind = DETAIL_KIND_BY_EVENT[event.type];
+    if (kind === undefined) continue;
+    const data = event.data;
+    if (data === null || typeof data !== 'object') continue;
+    const message = kind === 'user' ? data : data.message;
+    if (message === null || typeof message !== 'object') continue;
+    const parts = messageParts(message);
+    if (parts.text.length === 0 && parts.reasoning.length === 0 && parts.toolCalls.length === 0) continue;
+    items.push({
+      seq,
+      id: typeof message.id === 'string' ? message.id : undefined,
+      kind,
+      text: parts.text,
+      reasoning: parts.reasoning,
+      toolCalls: parts.toolCalls,
+      isError: kind === 'tool-result' && (data.error !== undefined || message.isError === true),
+      timeLabel: formatClock(event.time, timeZone),
+      removed: !surfaceSet.has(seq),
+      approxTokens: estimateTokens(`${parts.text}${parts.reasoning}`),
+    });
+  }
+  return {
+    sessionId,
+    timeZone,
+    found: true,
+    turn: turnNumber,
+    date: localDate(turn.startTime, timeZone),
+    startedAt: turn.startTime,
+    endedAt: turn.endTime ?? turn.startTime,
+    active: turn.closed !== true,
+    items,
+    itemCount: items.length,
+    approxTokens: items.reduce((sum, item) => sum + item.approxTokens, 0),
+  };
+}
+
 /** 粗略 token 估算：中文约 1 字 0.6 token、英文约 4 字符 1 token，取中间值。 */
 export function estimateTokens(text) {
   if (typeof text !== 'string' || text.length === 0) return 0;

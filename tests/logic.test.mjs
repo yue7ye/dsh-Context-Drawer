@@ -7,10 +7,12 @@ import {
   buildDeletePlanByTurns,
   buildEntryReport,
   buildReplacementEvent,
+  buildTurnDetail,
   collectTurns,
   estimateTokens,
   formatClock,
   localDate,
+  messageParts,
   messageText,
 } from '../logic.js';
 
@@ -257,4 +259,97 @@ test('buildReplacementEvent 生成可恢复、可替换的占位事件', () => {
   assert.ok(candidate.data.message.id.length > 0);
   assert.ok(candidate.data.message.source.kind.length > 0);
   assert.ok(Array.isArray(candidate.data.message.content));
+});
+
+test('messageParts 拆出文本、思考与工具调用', () => {
+  const parts = messageParts({
+    content: [
+      { type: 'text', text: '好的' },
+      { type: 'reasoning', text: '先想一下' },
+      { type: 'thinking', thinking: '再想一下' },
+      { type: 'tool-call', callId: 'c1', name: 'search', arguments: { q: '天气' } },
+      { type: 'tool-call', toolCallId: 'c2', toolName: 'read', input: { path: 'a.txt' } },
+    ],
+  });
+  assert.equal(parts.text, '好的');
+  assert.equal(parts.reasoning, '先想一下\n再想一下');
+  assert.equal(parts.toolCalls.length, 2);
+  assert.deepEqual(parts.toolCalls[0], { callId: 'c1', name: 'search', arguments: { q: '天气' } });
+  assert.deepEqual(parts.toolCalls[1], { callId: 'c2', name: 'read', arguments: { path: 'a.txt' } });
+  assert.deepEqual(messageParts(null), { text: '', reasoning: '', toolCalls: [] });
+  assert.deepEqual(messageParts({ content: [] }), { text: '', reasoning: '', toolCalls: [] });
+});
+
+test('buildTurnDetail 列出整轮明细并标记被移出的条目', () => {
+  const toolEvents = [
+    { type: 'system/message', seq: 0, time: t('2026-10-27T12:00:00+08:00'), data: { message: textMessage('system', 'system prompt', 'sys') } },
+    { type: 'turn/start', seq: 1, time: t('2026-10-27T12:00:00+08:00'), data: { turn: 1 } },
+    { type: 'user/message', seq: 2, time: t('2026-10-27T12:00:01+08:00'), data: textMessage('user', '帮我查一下天气', 'u1') },
+    {
+      type: 'assistant/message',
+      seq: 3,
+      time: t('2026-10-27T12:00:02+08:00'),
+      data: {
+        turn: 1,
+        step: 1,
+        message: {
+          id: 'a1',
+          role: 'assistant',
+          source: { kind: 'model', provider: 'deepseek', model: 'deepseek-flash' },
+          content: [
+            { type: 'reasoning', text: '我需要调用搜索工具' },
+            { type: 'text', text: '我查一下' },
+            { type: 'tool-call', callId: 'c1', name: 'search', arguments: { q: '天气' } },
+          ],
+        },
+        stream: [],
+      },
+    },
+    {
+      type: 'tool/result',
+      seq: 4,
+      time: t('2026-10-27T12:00:03+08:00'),
+      data: {
+        turn: 1,
+        step: 1,
+        message: {
+          id: 'tr1',
+          role: 'tool',
+          source: { kind: 'tool', callId: 'c1' },
+          toolCallId: 'c1',
+          content: [{ type: 'text', text: '晴，25 度' }],
+        },
+      },
+    },
+    { type: 'turn/end', seq: 5, time: t('2026-10-27T12:00:09+08:00'), data: { turn: 1, reason: 'completed' } },
+  ];
+  const toolSession = makeSession(toolEvents, [0, 2, 3]);
+
+  const detail = buildTurnDetail(toolSession, 1, {});
+  assert.equal(detail.found, true);
+  assert.equal(detail.turn, 1);
+  assert.equal(detail.date, '2026-10-27');
+  assert.equal(detail.active, false);
+  assert.equal(detail.itemCount, 3);
+  assert.deepEqual(detail.items.map((item) => item.kind), ['user', 'assistant', 'tool-result']);
+  assert.deepEqual(detail.items.map((item) => item.removed), [false, false, true]);
+  assert.equal(detail.items[0].text, '帮我查一下天气');
+  assert.equal(detail.items[1].text, '我查一下');
+  assert.equal(detail.items[1].reasoning, '我需要调用搜索工具');
+  assert.equal(detail.items[1].toolCalls.length, 1);
+  assert.equal(detail.items[1].toolCalls[0].name, 'search');
+  assert.equal(detail.items[2].text, '晴，25 度');
+  for (const item of detail.items) {
+    assert.match(item.timeLabel, /^\d{2}:\d{2}:\d{2}$/u);
+    assert.ok(item.approxTokens >= 0);
+  }
+  assert.ok(detail.approxTokens > 0);
+
+  assert.equal(buildTurnDetail(toolSession, 99, {}).found, false);
+  assert.equal(buildTurnDetail(toolSession, 1.5, {}).found, false);
+
+  const activeDetail = buildTurnDetail(session, 4, {});
+  assert.equal(activeDetail.found, true);
+  assert.equal(activeDetail.active, true);
+  assert.equal(activeDetail.items.length, 1);
 });

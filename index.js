@@ -17,6 +17,7 @@ import {
   buildDeletePlanByTurns,
   buildEntryReport,
   buildReplacementEvent,
+  buildTurnDetail,
   DEFAULT_TIME_ZONE,
 } from './logic.js';
 
@@ -136,6 +137,29 @@ export function apply(ctx, config) {
     }
     try {
       sendJson(res, 200, { ok: true, ...buildEntryReport(found.session, { timeZone }) });
+    } catch (error) {
+      sendJson(res, 500, { error: `读取会话失败：${errorText(error)}` });
+    }
+  });
+
+  register('/context-date-pruner/detail', async (req, res) => {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: '只支持 GET' });
+      return;
+    }
+    const url = new URL(req.url ?? '/', 'http://localhost');
+    const found = resolveSession(ctx, url.searchParams.get('sessionId'));
+    if (found.error !== undefined) {
+      sendJson(res, 404, { error: found.error });
+      return;
+    }
+    const turn = Number(url.searchParams.get('turn'));
+    if (!Number.isInteger(turn) || turn <= 0 || turn > MAX_TURNS) {
+      sendJson(res, 400, { error: 'turn 必须是正整数' });
+      return;
+    }
+    try {
+      sendJson(res, 200, { ok: true, ...buildTurnDetail(found.session, turn, { timeZone }) });
     } catch (error) {
       sendJson(res, 500, { error: `读取会话失败：${errorText(error)}` });
     }

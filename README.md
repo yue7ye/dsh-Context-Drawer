@@ -1,17 +1,18 @@
 # dsh-context-date-pruner
 
-给 DeepSeek Harness (DSH) 用的上下文编辑插件：**按时间段挑出会话里已经结束的轮次，把选中的那几条从模型上下文中移走**。
+给 DeepSeek Harness (DSH) 用的上下文编辑插件：**在会话里逐轮查看完整的聊天记录，再按时间段挑出已经结束的轮次，把选中的那几条从模型上下文中移走**。
 
-DSH plugin for DeepSeek Harness: **filter a live session by time range and remove individual finished turns from the model-visible context**.
+DSH plugin for DeepSeek Harness: **browse a live session chat log turn by turn, filter it by time range, and remove individual finished turns from the model-visible context**.
 
 ## 它做什么 · What it does
 
 - 在输入框下方加一个「上下文编辑」按钮，按本地时区（默认 `Asia/Shanghai`）列出当前打开着的会话里所有**已经结束的轮次**：每条带开始时间、预览、节点数和粗略 token。
+- 每轮右侧有「展开聊天记录」：展开后按发生顺序显示这一轮的完整明细——用户消息、助手回复、思考过程、工具调用与结果、系统注入；被移出上下文的内容会标记出来。再点「收起聊天记录」收回去。
 - 用「从 / 到」时间输入框或「今天 / 近 3 天 / 近 7 天 / 全部时间」快速筛选时间段，再逐条勾选要删除的轮次；也可以按天全选或全选当前列表。
 - 先「预演」确认会删掉多少轮、多少节点、大约多少 token，再点两次「删除」。
 - 删除只作用于**模型后续请求看到的上下文**：会话日志是 append-only 的，插件不删除、不改写任何已有事件；聊天记录里原来的消息仍然在。
 - 系统提示永远保留；当前正在进行的那一轮不能删除。
-- Adds an **Edit context** button below the composer. It lists the finished turns of the live session with start time, preview, node count and approximate tokens. Filter by a time range (or quick chips), select the turns to remove, run a dry run, then confirm twice. The append-only session log and the rendered transcript are left untouched, the system prompt is always kept, and the active turn is never listed.
+- Adds an **Edit context** button below the composer. It lists the finished turns of the live session with start time, preview, node count and approximate tokens. Each turn has a **Show chat log** toggle that expands the full messages of that turn (user, assistant, reasoning, tool calls and results, system injections; removed entries are marked) and can be collapsed again. Filter by a time range (or quick chips), select the turns to remove, run a dry run, then confirm twice. The append-only session log and the rendered transcript are left untouched, the system prompt is always kept, and the active turn is never listed.
 
 ## 安装 · Install
 
@@ -27,8 +28,9 @@ dsh plugin --profile <your-profile> add dsh-context-date-pruner
 
 1. 打开一个会话（插件只对正在运行的 live 会话生效）。
 2. 点输入框下方的「上下文编辑」。
-3. 用时间范围筛选，或直接按日期看；勾选具体轮次 →「预演」→「删除」，再点一次确认。
-4. 「全选当前列表」可以一次处理筛选结果里的所有可删轮次。
+3. 想看某一轮的完整聊天记录，就点该轮右侧的「展开聊天记录」；被移出上下文的内容会标记「已移出上下文」。
+4. 用时间范围筛选，勾选具体轮次 →「预演」→「删除」，再点一次确认。
+5. 「全选当前列表」可以一次处理筛选结果里的所有可删轮次。
 
 ## 语义与限制 · Semantics and limits
 
