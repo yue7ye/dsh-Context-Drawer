@@ -1,0 +1,55 @@
+{
+  "name": "dsh-context-date-pruner",
+  "version": "1.0.0",
+  "description": "DeepSeek Harness plugin: pick calendar dates and remove the finished turns of those dates from the model-visible conversation context. The chat transcript and the append-only session log are left untouched.",
+  "type": "module",
+  "license": "MIT",
+  "author": "yue7ye",
+  "homepage": "https://github.com/yue7ye/dsh-context-date-pruner",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yue7ye/dsh-context-date-pruner.git"
+  },
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "context",
+    "context-management",
+    "session",
+    "web"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "logic.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "dsh": ">=0.2.0-rc.2"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Context Editor",
+    "description": "Remove content from the model context by date; chat history and the on-disk log stay intact."
+  }
+}
