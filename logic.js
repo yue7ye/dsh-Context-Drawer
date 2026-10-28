@@ -38,6 +38,31 @@ export function localDate(timestamp, timeZone = DEFAULT_TIME_ZONE) {
   }
 }
 
+/** 把毫秒时间戳格式化成指定时区里的 HH:mm:ss。 */
+export function formatClock(timestamp, timeZone = DEFAULT_TIME_ZONE) {
+  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) return '';
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date(timestamp));
+    const value = (type) => {
+      const part = parts.find((item) => item.type === type);
+      return part === undefined ? '' : part.value;
+    };
+    const hour = value('hour');
+    const minute = value('minute');
+    const second = value('second');
+    if (hour === '' || minute === '' || second === '') return '';
+    return `${hour}:${minute}:${second}`;
+  } catch {
+    return '';
+  }
+}
+
 /** 从模型消息里提取可读文本（用于预览与粗略 token 估算）。 */
 export function messageText(message) {
   if (message === null || typeof message !== 'object' || !Array.isArray(message.content)) return '';
@@ -160,7 +185,15 @@ function analyze(session, options = {}) {
     const group = groups.get(date);
     if (group !== undefined) group.nodes.push(node);
   }
-  return { timeZone, events, turns, closedTurns, activeTurn, nodes, groups };
+  const turnNodes = new Map();
+  for (const turn of closedTurns) turnNodes.set(turn.turn, []);
+  for (const node of nodes) {
+    const turn = findTurn(closedTurns, node.seq);
+    if (turn === null) continue;
+    const list = turnNodes.get(turn.turn);
+    if (list !== undefined) list.push(node);
+  }
+  return { timeZone, events, turns, closedTurns, activeTurn, nodes, turnNodes, groups };
 }
 
 function describeGroup(session, group) {
@@ -214,6 +247,149 @@ export function buildDateReport(session, options = {}) {
     timeZone: state.timeZone,
     activeTurn: state.activeTurn,
     dates,
+  };
+}
+
+/** 描述一个已结束的 turn（一条可单独删除的上下文条目）。 */
+function describeTurn(session, turn, nodes, timeZone) {
+  const messages = [];
+  let chars = 0;
+  for (const node of nodes) {
+    const message = session.deriveEventMessage(node.event);
+    if (!message) continue;
+    const text = messageText(message);
+    if (text.length === 0) continue;
+    messages.push({ role: message.role, text });
+    chars += text.length;
+  }
+  const previews = [];
+  for (const entry of messages) {
+    if (entry.role === 'user') {
+      previews.push({ role: 'user', text: clip(entry.text, 80) });
+      if (previews.length >= 2) break;
+    }
+  }
+  if (previews.length === 0) {
+    const assistant = messages.find((entry) => entry.role === 'assistant');
+    if (assistant !== undefined) previews.push({ role: 'assistant', text: clip(assistant.text, 80) });
+  }
+  const removable = nodes.filter((node) => !(node.index === 0 && node.event.type === 'system/message'));
+  const deletable = removable.length > 0;
+  let reason;
+  if (!deletable) {
+    reason = nodes.length === 0 ? '这一轮的内容已不在上下文中' : '这一轮只剩系统提示，不需要删除';
+  }
+  const date = localDate(turn.startTime, timeZone);
+  return {
+    turn: turn.turn,
+    date,
+    startedAt: turn.startTime,
+    endedAt: turn.endTime ?? turn.startTime,
+    time: formatClock(turn.startTime, timeZone),
+    endTime: formatClock(turn.endTime ?? turn.startTime, timeZone),
+    nodeCount: nodes.length,
+    removableNodes: removable.length,
+    approxTokens: Math.ceil(chars / 1.6),
+    previews,
+    deletable,
+    reason,
+  };
+}
+
+/**
+ * 生成给客户端看的轮次报告：每个已结束的 turn 一条，带开始/结束时间、预览、
+ * 节点数与粗略 token。客户端按时间段筛选并逐条勾选。
+ */
+export function buildEntryReport(session, options = {}) {
+  const state = analyze(session, options);
+  const entries = [];
+  for (const turn of state.closedTurns) {
+    entries.push(describeTurn(session, turn, state.turnNodes.get(turn.turn) ?? [], state.timeZone));
+  }
+  entries.sort((left, right) => left.startedAt - right.startedAt);
+  return {
+    sessionId: String(session.id),
+    timeZone: state.timeZone,
+    activeTurn: state.activeTurn,
+    entries,
+  };
+}
+
+/**
+ * 按选中的 turn 编号生成删除计划。选中的 turn 会在当前 surface 上换成连续的节点；
+ * 同一日期里相邻选中的轮次合并成一段，跨日期或中间有空隙则拆段。
+ */
+export function buildDeletePlanByTurns(session, turns, options = {}) {
+  const state = analyze(session, options);
+  const wanted = Array.isArray(turns)
+    ? [...new Set(turns.filter((turn) => Number.isInteger(turn) && turn > 0))]
+    : [];
+  const wantedSet = new Set(wanted);
+  const byNumber = new Map(state.closedTurns.map((turn) => [turn.turn, turn]));
+  const skipped = [];
+  for (const turn of wanted) {
+    if (!byNumber.has(turn)) skipped.push({ turn, reason: '找不到这一轮（它可能还没结束或不存在）' });
+  }
+  const selected = state.closedTurns
+    .filter((turn) => wantedSet.has(turn.turn))
+    .sort((left, right) => left.startSeq - right.startSeq);
+  const position = latestTurnStep(state.events, state.events.length - 1);
+  const runs = [];
+  let current = null;
+  let deletedTurns = 0;
+  for (const turn of selected) {
+    const date = localDate(turn.startTime, state.timeZone);
+    const nodes = state.turnNodes.get(turn.turn) ?? [];
+    const candidates = nodes.filter((node) => !(node.index === 0 && node.event.type === 'system/message'));
+    if (candidates.length === 0) {
+      skipped.push({ turn: turn.turn, date, reason: '这一轮的内容已不在上下文中' });
+      continue;
+    }
+    deletedTurns += 1;
+    for (const node of candidates) {
+      const canExtend = current !== null && current.date === date && node.index === current.lastIndex + 1;
+      if (canExtend) {
+        current.nodes.push(node);
+        current.lastIndex = node.index;
+        current.turns.push(turn.turn);
+      } else {
+        current = { date, nodes: [node], lastIndex: node.index, turns: [turn.turn] };
+        runs.push(current);
+      }
+    }
+  }
+  const plans = runs.map((run) => {
+    const seqs = run.nodes.map((node) => node.seq);
+    let chars = 0;
+    for (const node of run.nodes) {
+      chars += messageText(session.deriveEventMessage(node.event)).length;
+    }
+    return {
+      date: run.date,
+      turns: run.turns,
+      seqs,
+      startSeq: seqs[0],
+      endSeq: seqs[seqs.length - 1],
+      nodeCount: seqs.length,
+      approxTokens: Math.ceil(chars / 1.6),
+      turn: position.turn,
+      step: position.step,
+    };
+  });
+  const totals = plans.reduce(
+    (acc, plan) => ({
+      nodes: acc.nodes + plan.nodeCount,
+      approxTokens: acc.approxTokens + plan.approxTokens,
+    }),
+    { nodes: 0, approxTokens: 0 },
+  );
+  return {
+    timeZone: state.timeZone,
+    runs: plans,
+    skipped,
+    totalTurns: deletedTurns,
+    totalNodes: totals.nodes,
+    totalTokens: totals.approxTokens,
   };
 }
 

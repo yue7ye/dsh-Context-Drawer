@@ -7,46 +7,65 @@ window.__ModuleLoader__.load({
 
     const zh = {
       button: '上下文编辑',
-      buttonHint: '按日期把内容从模型上下文中删除（聊天记录与日志保留）',
+      buttonHint: '按时间段挑出要删除的对话轮次（聊天记录与日志保留）',
       title: '上下文编辑',
-      subtitle: '勾选要删除的日期。只把这些内容移出模型上下文；聊天记录和磁盘日志保持不变。',
+      subtitle: '按时间段筛选，勾选要删除的轮次（一天里的某一条对话）。只把这些内容移出模型上下文；聊天记录和磁盘日志保持不变。',
       close: '关闭',
       loading: '正在读取…',
       error: '读取失败',
-      empty: '没有可删除的日期内容。',
-      turns: '轮',
+      empty: '没有可删除的内容。',
+      filterEmpty: '这个时间段里没有可删除的内容。',
+      activeNote: '当前这一轮对话不会被删除',
+      from: '从',
+      to: '到',
+      allTime: '全部时间',
+      today: '今天',
+      last3: '近 3 天',
+      last7: '近 7 天',
+      entries: '条',
       nodes: '节点',
-      approx: '约 {tokens} token',
-      selectAll: '全选可删除',
-      clear: '清空选择',
+      tokens: '约 {tokens} token',
+      selectAllVisible: '全选当前列表',
+      selectDay: '全选本日',
+      clear: '清空',
+      selectedCount: '已选 {count} 条',
       dryRun: '先预演',
-      delete: '删除选中日期',
+      delete: '删除选中',
       confirmDelete: '再点一次确认删除',
       confirmAgain: '删除不可撤销：再点一次“再点一次确认删除”。',
       deleting: '处理中…',
       confirmNote: '删除会向会话日志追加替换记录，不可撤销；聊天记录仍显示原内容。',
-      dryDone: '预演通过（未写入）：{turns} 轮 / {nodes} 个节点，约 {tokens} token',
-      done: '已从模型上下文删除：{turns} 轮 / {nodes} 个节点，约 {tokens} token',
+      dryDone: '预演通过（未写入）：{turns} 条 / {nodes} 个节点，约 {tokens} token',
+      done: '已从模型上下文删除：{turns} 条 / {nodes} 个节点，约 {tokens} token',
       skipped: '跳过',
-      none: '没有需要删除的内容',
       unsupported: '这个会话当前不能编辑（它没有在运行中）。',
     };
     const en = {
       button: 'Context editor',
-      buttonHint: 'Remove content from the model context by date (chat history and log stay intact)',
+      buttonHint: 'Pick the turns to remove by time range (chat history and log stay intact)',
       title: 'Context editor',
-      subtitle: 'Pick the dates to remove. Only the model context changes; chat history and the on-disk log stay as they are.',
+      subtitle: 'Filter by time range, then pick the turns to remove. Only the model context changes; chat history and the on-disk log stay as they are.',
       close: 'Close',
       loading: 'Loading…',
       error: 'Failed to load',
       empty: 'No removable content found.',
-      turns: 'turns',
+      filterEmpty: 'No removable content in this time range.',
+      activeNote: 'The turn in progress cannot be removed',
+      from: 'From',
+      to: 'To',
+      allTime: 'All time',
+      today: 'Today',
+      last3: 'Last 3 days',
+      last7: 'Last 7 days',
+      entries: 'turns',
       nodes: 'nodes',
-      approx: '~{tokens} tokens',
-      selectAll: 'Select all removable',
-      clear: 'Clear selection',
+      tokens: '~{tokens} tokens',
+      selectAllVisible: 'Select all visible',
+      selectDay: 'Select this day',
+      clear: 'Clear',
+      selectedCount: '{count} selected',
       dryRun: 'Dry run',
-      delete: 'Delete selected dates',
+      delete: 'Delete selected',
       confirmDelete: 'Click again to confirm',
       confirmAgain: 'Deletion cannot be undone: click “Click again to confirm”.',
       deleting: 'Working…',
@@ -54,7 +73,6 @@ window.__ModuleLoader__.load({
       dryDone: 'Dry run passed (nothing written): {turns} turns / {nodes} nodes, ~{tokens} tokens',
       done: 'Removed from model context: {turns} turns / {nodes} nodes, ~{tokens} tokens',
       skipped: 'Skipped',
-      none: 'Nothing to delete',
       unsupported: 'This session cannot be edited right now (it is not live).',
     };
 
@@ -114,7 +132,7 @@ window.__ModuleLoader__.load({
       overflow: 'hidden',
       textOverflow: 'ellipsis',
       whiteSpace: 'nowrap',
-      maxWidth: 420,
+      maxWidth: 400,
     };
 
     function primaryButton(disabled) {
@@ -143,6 +161,28 @@ window.__ModuleLoader__.load({
         opacity: disabled ? 0.55 : 1,
       };
     }
+    function chipButton(active) {
+      return {
+        border: `1px solid ${active ? colors.accent : colors.borderSoft}`,
+        borderRadius: 999,
+        padding: '3px 10px',
+        fontSize: 12,
+        color: active ? colors.text : colors.secondary,
+        background: active ? colors.hover : 'transparent',
+        cursor: 'pointer',
+      };
+    }
+    function timeInputStyle() {
+      return {
+        border: `1px solid ${colors.borderSoft}`,
+        borderRadius: colors.radiusMd,
+        background: 'transparent',
+        color: colors.text,
+        fontSize: 12,
+        padding: '4px 8px',
+        colorScheme: 'dark',
+      };
+    }
 
     async function requestJson(path, init) {
       const response = await fetch(path, { credentials: 'same-origin', ...init });
@@ -159,6 +199,30 @@ window.__ModuleLoader__.load({
         throw new Error(message);
       }
       return data;
+    }
+
+    function pad2(value) {
+      return String(value).padStart(2, '0');
+    }
+    function toInputValue(timestamp) {
+      const date = new Date(timestamp);
+      return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}T${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+    }
+    function parseInputValue(value) {
+      if (typeof value !== 'string' || value.length === 0) return null;
+      const parsed = new Date(value);
+      const time = parsed.getTime();
+      return Number.isFinite(time) ? time : null;
+    }
+    function startOfToday() {
+      const date = new Date();
+      date.setHours(0, 0, 0, 0);
+      return date.getTime();
+    }
+    function daysAgo(days) {
+      const date = new Date();
+      date.setMinutes(0, 0, 0);
+      return date.getTime() - days * 24 * 60 * 60 * 1000;
     }
 
     function Trigger({ sessionId, t }) {
@@ -196,6 +260,8 @@ window.__ModuleLoader__.load({
       const state = useStore();
       const translate = translator(t);
       const [data, setData] = React.useState({ status: 'idle', report: null, error: null });
+      const [from, setFrom] = React.useState('');
+      const [to, setTo] = React.useState('');
       const [selected, setSelected] = React.useState([]);
       const [busy, setBusy] = React.useState(false);
       const [confirming, setConfirming] = React.useState(false);
@@ -209,6 +275,8 @@ window.__ModuleLoader__.load({
         setSelected([]);
         setConfirming(false);
         setNotice(null);
+        setFrom('');
+        setTo('');
         const onKey = (event) => {
           if (event.key === 'Escape') update({ open: false, sessionId: null });
         };
@@ -220,7 +288,7 @@ window.__ModuleLoader__.load({
         if (!open || !sessionId) return undefined;
         let cancelled = false;
         setData({ status: 'loading', report: null, error: null });
-        requestJson(`/context-date-pruner/dates?sessionId=${encodeURIComponent(sessionId)}`)
+        requestJson(`/context-date-pruner/entries?sessionId=${encodeURIComponent(sessionId)}`)
           .then((report) => {
             if (!cancelled) setData({ status: 'ready', report, error: null });
           })
@@ -235,18 +303,84 @@ window.__ModuleLoader__.load({
       if (!open || !sessionId) return null;
 
       const report = data.report;
-      const dates = report !== null && Array.isArray(report.dates) ? report.dates : [];
+      const entries = report !== null && Array.isArray(report.entries) ? report.entries : [];
+      const fromMs = parseInputValue(from);
+      const toMs = parseInputValue(to);
+      const visible = entries.filter((entry) => {
+        const startedAt = Number(entry.startedAt) || 0;
+        if (fromMs !== null && startedAt < fromMs) return false;
+        if (toMs !== null && startedAt > toMs) return false;
+        return true;
+      });
+      const visibleDeletable = visible.filter((entry) => entry.deletable === true);
       const selectedSet = new Set(selected);
-      const removableDates = dates.filter((item) => item.deletable === true).map((item) => item.date);
-      const allSelected = removableDates.length > 0 && removableDates.every((date) => selectedSet.has(date));
+      const selectedEntries = entries.filter((entry) => selectedSet.has(entry.turn));
+      const selectedNodes = selectedEntries.reduce((acc, entry) => acc + (Number(entry.nodeCount) || 0), 0);
+      const selectedTokens = selectedEntries.reduce((acc, entry) => acc + (Number(entry.approxTokens) || 0), 0);
+      const allVisibleSelected = visibleDeletable.length > 0
+        && visibleDeletable.every((entry) => selectedSet.has(entry.turn));
       const canAct = !busy && selected.length > 0;
 
-      const toggle = (date) => {
+      const groups = [];
+      const groupMap = new Map();
+      for (const entry of visible) {
+        const date = typeof entry.date === 'string' && entry.date.length > 0 ? entry.date : '未知日期';
+        let group = groupMap.get(date);
+        if (group === undefined) {
+          group = { date, entries: [] };
+          groupMap.set(date, group);
+          groups.push(group);
+        }
+        group.entries.push(entry);
+      }
+      groups.sort((left, right) => (left.date < right.date ? 1 : left.date > right.date ? -1 : 0));
+
+      const toggle = (turn) => {
         setConfirming(false);
         setNotice(null);
         setSelected((current) => (
-          current.includes(date) ? current.filter((item) => item !== date) : [...current, date]
+          current.includes(turn) ? current.filter((item) => item !== turn) : [...current, turn]
         ));
+      };
+
+      const toggleDay = (entriesOfDay) => {
+        const turns = entriesOfDay.filter((entry) => entry.deletable === true).map((entry) => entry.turn);
+        const allOn = turns.length > 0 && turns.every((turn) => selectedSet.has(turn));
+        setConfirming(false);
+        setNotice(null);
+        setSelected((current) => {
+          if (allOn) return current.filter((item) => !turns.includes(item));
+          const next = new Set(current);
+          for (const turn of turns) next.add(turn);
+          return [...next];
+        });
+      };
+
+      const toggleAllVisible = () => {
+        const turns = visibleDeletable.map((entry) => entry.turn);
+        setConfirming(false);
+        setNotice(null);
+        setSelected((current) => {
+          if (allVisibleSelected) return current.filter((item) => !turns.includes(item));
+          const next = new Set(current);
+          for (const turn of turns) next.add(turn);
+          return [...next];
+        });
+      };
+
+      const applyChip = (kind) => {
+        setConfirming(false);
+        setNotice(null);
+        if (kind === 'all') {
+          setFrom('');
+          setTo('');
+          return;
+        }
+        const now = toInputValue(Date.now());
+        setTo(now);
+        if (kind === 'today') setFrom(toInputValue(startOfToday()));
+        else if (kind === '3d') setFrom(toInputValue(daysAgo(3)));
+        else if (kind === '7d') setFrom(toInputValue(daysAgo(7)));
       };
 
       const act = async (dryRun) => {
@@ -263,7 +397,7 @@ window.__ModuleLoader__.load({
           const result = await requestJson('/context-date-pruner/delete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionId, dates: selected, dryRun }),
+            body: JSON.stringify({ sessionId, turns: selected, dryRun }),
           });
           const counts = {
             turns: Number(result !== null && result.deletedTurns) || 0,
@@ -273,7 +407,10 @@ window.__ModuleLoader__.load({
           let text = fill(translate(dryRun ? 'dryDone' : 'done'), counts);
           const skipped = result !== null && Array.isArray(result.skipped) ? result.skipped : [];
           if (skipped.length > 0) {
-            text += ` ${translate('skipped')}：${skipped.map((item) => `${item.date}（${item.reason}）`).join('；')}`;
+            text += ` ${translate('skipped')}：${skipped.map((entry) => {
+              const where = entry.turn !== undefined ? `第 ${entry.turn} 轮` : String(entry.date);
+              return `${where}（${entry.reason}）`;
+            }).join('；')}`;
           }
           setBusy(false);
           setNotice({ text, error: false });
@@ -287,85 +424,138 @@ window.__ModuleLoader__.load({
         }
       };
 
-      const rowFor = (item) => {
-        const checked = selectedSet.has(item.date);
-        const disabled = item.deletable !== true || busy;
+      const rowFor = (entry) => {
+        const checked = selectedSet.has(entry.turn);
+        const disabled = entry.deletable !== true || busy;
         return h(
           'label',
           {
-            key: item.date,
+            key: `turn-${entry.turn}`,
             style: {
               display: 'flex',
               alignItems: 'flex-start',
               gap: 10,
-              padding: '9px 12px',
+              padding: '8px 12px',
               borderRadius: colors.radiusMd,
               border: `1px solid ${checked ? colors.accent : colors.borderSoft}`,
               background: checked ? colors.hover : 'transparent',
               cursor: disabled ? 'default' : 'pointer',
-              opacity: item.deletable === true ? 1 : 0.55,
+              opacity: entry.deletable === true ? 1 : 0.55,
             },
           },
           h('input', {
             type: 'checkbox',
             checked,
             disabled,
-            onChange: () => toggle(item.date),
+            onChange: () => toggle(entry.turn),
             style: { marginTop: 3, width: 15, height: 15, accentColor: colors.accent, cursor: disabled ? 'default' : 'pointer' },
           }),
           h(
             'div',
             { style: { minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 } },
-            h('div', { style: dateStyle }, item.date),
             h(
               'div',
-              { style: metaStyle },
-              `${translate('turns')} ${Number(item.turnCount) || 0} · ${translate('nodes')} ${Number(item.nodeCount) || 0} · ${fill(translate('approx'), { tokens: Number(item.approxTokens) || 0 })}`,
+              { style: { display: 'flex', alignItems: 'baseline', gap: 8 } },
+              h('span', { style: { color: colors.text, fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums' } }, entry.time || ''),
+              h('span', { style: metaStyle }, `${entry.endTime || ''}`),
+              h(
+                'span',
+                { style: metaStyle },
+                `· ${translate('nodes')} ${Number(entry.nodeCount) || 0} · ${fill(translate('tokens'), { tokens: Number(entry.approxTokens) || 0 })}`,
+              ),
             ),
-            Array.isArray(item.previews) && item.previews.length > 0
-              ? h('div', { style: previewStyle }, item.previews.map((entry) => entry.text).join(' / '))
+            Array.isArray(entry.previews) && entry.previews.length > 0
+              ? h('div', { style: previewStyle }, entry.previews.map((item) => item.text).join(' / '))
               : null,
-            item.deletable !== true && item.reason !== undefined
-              ? h('div', { style: metaStyle }, String(item.reason))
+            entry.deletable !== true && entry.reason !== undefined
+              ? h('div', { style: metaStyle }, String(entry.reason))
               : null,
           ),
         );
       };
-
-      const controls = h(
-        'div',
-        { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '0 20px 8px', flexWrap: 'wrap' } },
-        h('div', { style: metaStyle }, report !== null && report.activeTurn === true ? '当前这一轮对话不会被删除' : ''),
-        h(
-          'div',
-          { style: { display: 'flex', gap: 8 } },
-          h(
-            'button',
-            {
-              type: 'button',
-              disabled: busy || removableDates.length === 0,
-              onClick: () => setSelected(allSelected ? [] : removableDates),
-              style: { ...secondaryButton(busy || removableDates.length === 0), padding: '4px 10px', fontSize: 12 },
-            },
-            allSelected ? translate('clear') : translate('selectAll'),
-          ),
-        ),
-      );
 
       let body;
       if (data.status === 'loading') {
         body = h('div', { style: { padding: '20px 20px', ...metaStyle } }, translate('loading'));
       } else if (data.status === 'error') {
         body = h('div', { style: { padding: '20px 20px', ...metaStyle, color: colors.danger } }, `${translate('error')}：${data.error}`);
-      } else if (dates.length === 0) {
+      } else if (entries.length === 0) {
         body = h('div', { style: { padding: '20px 20px', ...metaStyle } }, translate('empty'));
+      } else if (visible.length === 0) {
+        body = h('div', { style: { padding: '20px 20px', ...metaStyle } }, translate('filterEmpty'));
       } else {
         body = h(
           'div',
-          { style: { padding: '0 20px 12px', display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', maxHeight: '54vh' } },
-          dates.map(rowFor),
+          { style: { padding: '0 20px 12px', display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', maxHeight: '50vh' } },
+          groups.map((group) => h(
+            'div',
+            { key: group.date, style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+            h(
+              'div',
+              { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 } },
+              h('span', { style: dateStyle }, group.date),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  disabled: busy || group.entries.every((entry) => entry.deletable !== true),
+                  onClick: () => toggleDay(group.entries),
+                  style: { ...chipButton(false), border: 'none', background: 'transparent', padding: '2px 6px' },
+                },
+                translate('selectDay'),
+              ),
+            ),
+            group.entries.map(rowFor),
+          )),
         );
       }
+
+      const filterBar = h(
+        'div',
+        {
+          style: {
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            flexWrap: 'wrap',
+            padding: '0 20px 10px',
+            borderBottom: `1px solid ${colors.borderSoft}`,
+            marginBottom: 10,
+          },
+        },
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+          h('span', { style: metaStyle }, translate('from')),
+          h('input', { type: 'datetime-local', value: from, onChange: (event) => setFrom(event.target.value), style: timeInputStyle() }),
+          h('span', { style: metaStyle }, translate('to')),
+          h('input', { type: 'datetime-local', value: to, onChange: (event) => setTo(event.target.value), style: timeInputStyle() }),
+        ),
+        h(
+          'div',
+          { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
+          h('button', { type: 'button', onClick: () => applyChip('all'), style: chipButton(from === '' && to === '') }, translate('allTime')),
+          h('button', { type: 'button', onClick: () => applyChip('today'), style: chipButton(false) }, translate('today')),
+          h('button', { type: 'button', onClick: () => applyChip('3d'), style: chipButton(false) }, translate('last3')),
+          h('button', { type: 'button', onClick: () => applyChip('7d'), style: chipButton(false) }, translate('last7')),
+        ),
+        h('div', { style: { flex: 1 } }),
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+          h('span', { style: metaStyle }, fill(translate('selectedCount'), { count: selected.length })),
+          h(
+            'button',
+            {
+              type: 'button',
+              disabled: busy || visibleDeletable.length === 0,
+              onClick: toggleAllVisible,
+              style: { ...secondaryButton(busy || visibleDeletable.length === 0), padding: '4px 10px', fontSize: 12 },
+            },
+            allVisibleSelected ? translate('clear') : translate('selectAllVisible'),
+          ),
+        ),
+      );
 
       const footer = h(
         'div',
@@ -389,7 +579,10 @@ window.__ModuleLoader__.load({
         ),
         h(
           'div',
-          { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
+          { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' } },
+          selected.length > 0
+            ? h('span', { style: metaStyle }, `${selectedEntries.length ? selectedNodes : 0} ${translate('nodes')} · ${fill(translate('tokens'), { tokens: selectedTokens })}`)
+            : null,
           h(
             'button',
             { type: 'button', disabled: !canAct, onClick: () => act(true), style: secondaryButton(!canAct) },
@@ -428,8 +621,8 @@ window.__ModuleLoader__.load({
           {
             onClick: (event) => event.stopPropagation(),
             style: {
-              width: 'min(560px, 100%)',
-              maxHeight: '78vh',
+              width: 'min(680px, 100%)',
+              maxHeight: '86vh',
               display: 'flex',
               flexDirection: 'column',
               background: colors.panel,
@@ -447,7 +640,10 @@ window.__ModuleLoader__.load({
               'div',
               null,
               h('div', { style: { fontSize: 16, fontWeight: 700, color: colors.text } }, translate('title')),
-              h('div', { style: { ...metaStyle, marginTop: 4, maxWidth: 430 } }, translate('subtitle')),
+              h('div', { style: { ...metaStyle, marginTop: 4, maxWidth: 540 } }, translate('subtitle')),
+              report !== null && report.activeTurn === true
+                ? h('div', { style: { ...metaStyle, marginTop: 4 } }, translate('activeNote'))
+                : null,
             ),
             h(
               'button',
@@ -468,7 +664,7 @@ window.__ModuleLoader__.load({
               '✕',
             ),
           ),
-          controls,
+          filterBar,
           body,
           footer,
         ),

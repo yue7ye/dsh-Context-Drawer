@@ -4,9 +4,12 @@ import { test } from 'node:test';
 import {
   buildDateReport,
   buildDeletePlan,
+  buildDeletePlanByTurns,
+  buildEntryReport,
   buildReplacementEvent,
   collectTurns,
   estimateTokens,
+  formatClock,
   localDate,
   messageText,
 } from '../logic.js';
@@ -174,6 +177,63 @@ test('buildDeletePlan 不生成空日期列表就不报错', () => {
   assert.equal(plan.runs.length, 0);
   assert.equal(plan.totalTurns, 0);
   assert.equal(plan.totalTokens, 0);
+});
+
+test('formatClock 按本地时区输出 HH:mm:ss', () => {
+  assert.equal(formatClock(t('2026-10-27T23:30:05+08:00')), '23:30:05');
+  assert.equal(formatClock(t('2026-10-27T23:30:05+08:00'), 'UTC'), '15:30:05');
+  assert.equal(formatClock(Number.NaN), '');
+});
+
+test('buildEntryReport 每条已结束轮次一条，带时间与预览', () => {
+  const report = buildEntryReport(session, {});
+  assert.equal(report.sessionId, 'session-logic-test');
+  assert.equal(report.activeTurn, true);
+  assert.deepEqual(report.entries.map((entry) => entry.turn), [1, 2, 3]);
+  assert.deepEqual(report.entries.map((entry) => entry.date), ['2026-10-26', '2026-10-27', '2026-10-27']);
+  assert.deepEqual(report.entries.map((entry) => entry.time), ['23:00:00', '09:00:00', '10:00:00']);
+  for (const entry of report.entries) {
+    assert.equal(entry.deletable, true);
+    assert.equal(entry.nodeCount, 2);
+    assert.ok(entry.approxTokens > 0);
+    assert.equal(entry.previews[0].role, 'user');
+  }
+});
+
+test('buildDeletePlanByTurns 只删选中的轮次', () => {
+  const plan = buildDeletePlanByTurns(session, [2], {});
+  assert.equal(plan.runs.length, 1);
+  assert.deepEqual(plan.runs[0].seqs, [8, 9]);
+  assert.equal(plan.runs[0].date, '2026-10-27');
+  assert.equal(plan.totalTurns, 1);
+  assert.equal(plan.totalNodes, 2);
+  assert.equal(plan.skipped.length, 0);
+});
+
+test('buildDeletePlanByTurns 相邻轮次合并、跨日或隔开轮次拆段', () => {
+  const adjacent = buildDeletePlanByTurns(session, [2, 3], {});
+  assert.equal(adjacent.runs.length, 1);
+  assert.deepEqual(adjacent.runs[0].seqs, [8, 9, 13, 14]);
+  assert.equal(adjacent.totalTurns, 2);
+
+  const separated = buildDeletePlanByTurns(session, [1, 3], {});
+  assert.equal(separated.runs.length, 2);
+  assert.deepEqual(separated.runs.map((run) => run.seqs), [[3, 4], [13, 14]]);
+  assert.equal(separated.totalNodes, 4);
+});
+
+test('buildDeletePlanByTurns 跳过进行中/不存在/重复的轮次', () => {
+  const active = buildDeletePlanByTurns(session, [4], {});
+  assert.equal(active.runs.length, 0);
+  assert.equal(active.skipped.length, 1);
+
+  const missing = buildDeletePlanByTurns(session, [99], {});
+  assert.equal(missing.runs.length, 0);
+  assert.equal(missing.skipped.length, 1);
+
+  const duplicated = buildDeletePlanByTurns(session, [2, 2], {});
+  assert.equal(duplicated.totalTurns, 1);
+  assert.equal(duplicated.totalNodes, 2);
 });
 
 test('buildReplacementEvent 生成可恢复、可替换的占位事件', () => {

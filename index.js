@@ -6,13 +6,16 @@
  * 让这些内容从模型上下文中消失。会话日志本身不删、聊天记录显示不变。
  *
  * 路由（由 DSH webServer 提供，同源）：
- *   GET  /context-date-pruner/sessions            列出当前 live 会话
- *   GET  /context-date-pruner/dates?sessionId=   按日期分组
- *   POST /context-date-pruner/delete              { sessionId, dates, dryRun? }
+ *   GET  /context-date-pruner/sessions             列出当前 live 会话
+ *   GET  /context-date-pruner/entries?sessionId=  按轮次列出可删除的上下文（带时间）
+ *   GET  /context-date-pruner/dates?sessionId=    按日期分组（旧版兼容）
+ *   POST /context-date-pruner/delete               { sessionId, turns | dates, dryRun? }
  */
 import {
   buildDateReport,
   buildDeletePlan,
+  buildDeletePlanByTurns,
+  buildEntryReport,
   buildReplacementEvent,
   DEFAULT_TIME_ZONE,
 } from './logic.js';
@@ -20,6 +23,7 @@ import {
 export const inject = ['webServer', 'sessions'];
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
+const MAX_TURNS = 5000;
 
 function errorText(error) {
   return error instanceof Error ? error.message : String(error);
@@ -119,6 +123,24 @@ export function apply(ctx, config) {
     }
   });
 
+  register('/context-date-pruner/entries', async (req, res) => {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: '只支持 GET' });
+      return;
+    }
+    const url = new URL(req.url ?? '/', 'http://localhost');
+    const found = resolveSession(ctx, url.searchParams.get('sessionId'));
+    if (found.error !== undefined) {
+      sendJson(res, 404, { error: found.error });
+      return;
+    }
+    try {
+      sendJson(res, 200, { ok: true, ...buildEntryReport(found.session, { timeZone }) });
+    } catch (error) {
+      sendJson(res, 500, { error: `读取会话失败：${errorText(error)}` });
+    }
+  });
+
   register('/context-date-pruner/delete', async (req, res) => {
     if (req.method !== 'POST') {
       sendJson(res, 405, { error: '只支持 POST' });
@@ -136,17 +158,22 @@ export function apply(ctx, config) {
       sendJson(res, 404, { error: found.error });
       return;
     }
+    const turns = Array.isArray(body?.turns)
+      ? [...new Set(body.turns.filter((turn) => Number.isInteger(turn) && turn > 0 && turn <= MAX_TURNS))]
+      : [];
     const dates = Array.isArray(body?.dates)
       ? body.dates.filter((date) => typeof date === 'string' && DATE_PATTERN.test(date))
       : [];
-    if (dates.length === 0) {
-      sendJson(res, 400, { error: '请至少选择一个日期' });
+    if (turns.length === 0 && dates.length === 0) {
+      sendJson(res, 400, { error: '请至少选择一条要删除的上下文' });
       return;
     }
     const session = found.session;
     let plan;
     try {
-      plan = buildDeletePlan(session, dates, { timeZone });
+      plan = turns.length > 0
+        ? buildDeletePlanByTurns(session, turns, { timeZone })
+        : buildDeletePlan(session, dates, { timeZone });
     } catch (error) {
       sendJson(res, 500, { error: `分析会话失败：${errorText(error)}` });
       return;
