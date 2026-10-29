@@ -1,4 +1,4 @@
-# dsh-context-date-pruner
+# dsh-Context-Drawer
 
 给 DeepSeek Harness (DSH) 用的上下文编辑插件：**在会话里逐轮查看完整的聊天记录，再按时间段挑出已经结束的轮次，把选中的那几条从模型上下文中移走**。
 
@@ -16,7 +16,7 @@ DSH plugin for DeepSeek Harness: **browse a live session chat log turn by turn, 
 
 ## 安装 · Install
 
-从市场安装：**插件 → 发现 → 搜索 `dsh-context-date-pruner` → 安装**。
+从市场安装：**插件 → 发现 → 搜索 `dsh-Context-Drawer` → 安装**。
 
 Or install directly in a DSH profile:
 
