@@ -5,10 +5,10 @@
   "type": "module",
   "license": "MIT",
   "author": "yue7ye",
-  "homepage": "https://github.com/yue7ye/dsh-context-date-pruner",
+  "homepage": "https://github.com/yue7ye/dsh-Context-Drawer",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yue7ye/dsh-context-date-pruner.git"
+    "url": "git+https://github.com/yue7ye/dsh-Context-Drawer.git"
   },
   "keywords": [
     "deepseek",
