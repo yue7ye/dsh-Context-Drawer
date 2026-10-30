@@ -1,5 +1,5 @@
 - insert:
-    - id: context-date-pruner
-      name: dsh-context-date-pruner
+    - id: context-drawer
+      name: dsh-context-drawer
       config:
-        timeZone: Asia/Shanghai
+        thresholdRatio: 0.5

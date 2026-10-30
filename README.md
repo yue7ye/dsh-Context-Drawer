@@ -1,60 +1,63 @@
 # dsh-Context-Drawer
 
-给 DeepSeek Harness (DSH) 用的上下文编辑插件：**在会话里逐轮查看完整的聊天记录，再按时间段挑出已经结束的轮次，把选中的那几条从模型上下文中移走**。
+A DeepSeek Harness (DSH) plugin with exactly **one** job:
 
-DSH plugin for DeepSeek Harness: **browse a live session chat log turn by turn, filter it by time range, and remove individual finished turns from the model-visible context**.
+> When the conversation context reaches a threshold (default **50%** of the model window), move older messages into a **folder associated with that conversation**, then release the oldest finished turns from the model-visible context.
 
-## 它做什么 · What it does
+There is no UI, no button, no route, no memory bridge, no prompt injection. The chat transcript and the append-only session log are never modified — the released part is only invisible to the model, and the archive on disk always has it.
 
-- 在输入框下方加一个「上下文编辑」按钮，按本地时区（默认 `Asia/Shanghai`）列出当前打开着的会话里所有**已经结束的轮次**：每条带开始时间、预览、节点数和粗略 token。
-- 每轮右侧有「展开聊天记录」：展开后按发生顺序显示这一轮的完整明细——用户消息、助手回复、思考过程、工具调用与结果、系统注入；被移出上下文的内容会标记出来。再点「收起聊天记录」收回去。
-- 用「从 / 到」时间输入框或「今天 / 近 3 天 / 近 7 天 / 全部时间」快速筛选时间段，再逐条勾选要删除的轮次；也可以按天全选或全选当前列表。
-- 先「预演」确认会删掉多少轮、多少节点、大约多少 token，再点两次「删除」。
-- 删除只作用于**模型后续请求看到的上下文**：会话日志是 append-only 的，插件不删除、不改写任何已有事件；聊天记录里原来的消息仍然在。
-- 系统提示永远保留；当前正在进行的那一轮不能删除。
-- Adds an **Edit context** button below the composer. It lists the finished turns of the live session with start time, preview, node count and approximate tokens. Each turn has a **Show chat log** toggle that expands the full messages of that turn (user, assistant, reasoning, tool calls and results, system injections; removed entries are marked) and can be collapsed again. Filter by a time range (or quick chips), select the turns to remove, run a dry run, then confirm twice. The append-only session log and the rendered transcript are left untouched, the system prompt is always kept, and the active turn is never listed.
+## Behaviour
 
-## 安装 · Install
+- Every turn, at the first step, the plugin estimates context usage (real provider usage when available, character estimate otherwise).
+- When usage reaches `thresholdRatio` (default `0.5`) of the model window:
+  1. Append the messages newer than the last archive watermark to `{archiveDir}/{sessionShort}/{date}.md`, fsync first;
+  2. Only after the file is safely on disk, remove the oldest **finished** turns from the model-visible context with a surface `replace` event.
+     The latest `keepRecentTurns` (default 6) turns are never touched, at most `releaseMaxTurns` (default 40) per pass, stopping near `releaseTargetRatio` (default 0.45).
+- Session log and transcript remain complete; the archive file is plain Markdown you can open at any time.
+- State lives in `~/.dsh/context-drawer/state/state.json` (one watermark per session, prevents duplicates).
 
-从市场安装：**插件 → 发现 → 搜索 `dsh-Context-Drawer` → 安装**。
+## Where the files go
 
-Or install directly in a DSH profile:
+Default: `~/上下文存档/{sessionShort}/{YYYY-MM-DD}.md`
 
-```sh
-dsh plugin --profile <your-profile> add dsh-context-date-pruner
+`sessionShort` is the session id with the `session-` prefix removed, first 8 characters — one subfolder per conversation, so you can always tell which conversation a file belongs to.
+
+## Configuration (`cordis.patch.yml`)
+
+```yaml
+- insert:
+    - id: context-drawer
+      name: dsh-context-drawer
+      config:
+        archiveDir: C:/deepseek/上下文存档   # optional; default ~/上下文存档
+        thresholdRatio: 0.5
 ```
 
-## 使用 · Usage
+Other optional fields: `thresholdTokens` (absolute token threshold), `modelWindow` (default 1048576),
+`charsPerToken`, `baselineTokens`, `keepRecentTurns`, `releaseMaxTurns`, `releaseTargetRatio`,
+`format` (`md` | `jsonl` | `txt`), `includeRoles`, `minTextLength`, `maxEntryChars`,
+`timeZone` (default `Asia/Shanghai`), `stateDir`.
 
-1. 打开一个会话（插件只对正在运行的 live 会话生效）。
-2. 点输入框下方的「上下文编辑」。
-3. 想看某一轮的完整聊天记录，就点该轮右侧的「展开聊天记录」；被移出上下文的内容会标记「已移出上下文」。
-4. 用时间范围筛选，勾选具体轮次 →「预演」→「删除」，再点一次确认。
-5. 「全选当前列表」可以一次处理筛选结果里的所有可删轮次。
+## Install
 
-## 语义与限制 · Semantics and limits
+From the DSH plugin market, search **dsh-Context-Drawer** and install, or:
 
-- 删除方式：向会话日志追加带 `surfaceOp: replace` 的占位事件（空内容的 developer 消息），让被选中的 surface 节点从 `deriveMessages()` 里消失。历史事件原样保留，所以事后仍可从日志恢复。
-- 只影响模型上下文；不删除聊天记录、不删除磁盘日志。
-- **不可撤销**：被移出上下文的内容不会再回到后续模型的请求里。
-- 只对打开着的会话生效；会话关闭后无法编辑。
-- 系统提示（surface 第 0 个节点）永远不会被删除。
-- 进行中的 turn 不会被列出或删除。
-- Deleting is implemented as surface replacements: the session log stays append-only, the transcript keeps the original messages, and only the model-visible derivation changes. There is no undo offered by the plugin.
-
-## 兼容性 · Compatibility
-
-- DSH `>= 0.2.0-rc.2`（已在桌面版 0.2.1-rc.2 上验证）。
-- 纯 Host + 浏览器 UI 插件，无运行时依赖。
-
-## 开发 · Development
-
-```sh
-npm test        # node --test  —— 纯逻辑测试，不需要 DSH 检出
+```bash
+dsh plugin --profile <profile> add dsh-context-drawer
 ```
 
-`logic.js` 不 import 任何 Harness 包，只依赖传进来的 session 对象，方便离线测试。
+## Test
 
-## License
+```bash
+node test.mjs
+```
 
-MIT
+Offline mock session: 10 finished turns → threshold → 20 archive entries + 8 released turns → second trigger only appends the new messages → non-first steps and low usage do nothing.
+
+## 中文说明
+
+只做一件事：上下文占用到达阈值（默认 50%）时，把更早的对话追加进「跟这个会话关联的外部文件夹」，落盘之后再把最旧的已结束轮次从模型可见上下文里移走。没有界面、没有按钮、不写记忆、不碰聊天记录原文。
+
+默认存档位置 `~/上下文存档/{会话短号}/{日期}.md`，一个会话一个文件夹；状态在 `~/.dsh/context-drawer/state/state.json`。最近 6 轮永远保留，单次最多释放 40 轮。
+
+MIT License.

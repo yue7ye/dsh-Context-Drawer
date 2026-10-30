@@ -1,8 +1,20 @@
 {
-  "name": "dsh-context-date-pruner",
-  "version": "1.2.0",
-  "description": "DeepSeek Harness plugin: browse a live session chat log turn by turn (expand or collapse the full messages), filter it by time range, and remove individual finished turns (or whole days) from the model-visible conversation context. The chat transcript and the append-only session log are left untouched.",
+  "name": "dsh-context-drawer",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness plugin with exactly one job: when the conversation context reaches a threshold (default 50% of the model window), append older messages to a folder associated with that conversation, then release the oldest finished turns from the model-visible context. The chat transcript and the append-only session log stay untouched. No UI, no memory, nothing else.",
   "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./core": "./core.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "core.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "icon.svg"
+  ],
   "license": "MIT",
   "author": "yue7ye",
   "homepage": "https://github.com/yue7ye/dsh-Context-Drawer",
@@ -10,6 +22,10 @@
     "type": "git",
     "url": "git+https://github.com/yue7ye/dsh-Context-Drawer.git"
   },
+  "bugs": {
+    "url": "https://github.com/yue7ye/dsh-Context-Drawer/issues"
+  },
+  "icon": "./icon.svg",
   "keywords": [
     "deepseek",
     "deepseek-harness",
@@ -17,42 +33,16 @@
     "dsh-plugin",
     "context",
     "context-management",
+    "context-drawer",
     "session",
-    "web",
-    "context-pruning",
-    "token",
-    "date"
+    "token"
   ],
-  "exports": {
-    ".": "./index.js",
-    "./client": "./client.js",
-    "./locale/*.json": "./locale/*.json",
-    "./icon": "./icon.svg"
-  },
-  "files": [
-    "index.js",
-    "logic.js",
-    "client.js",
-    "cordis.patch.yml",
-    "locale/*.json",
-    "icon.svg"
-  ],
-  "scripts": {
-    "test": "node --test"
-  },
   "engines": {
     "dsh": ">=0.2.0-rc.2"
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "platform": "web",
-      "immediately": true,
-      "inject": [
-        "@deepseek-ai/dsh-client-ui-conversation"
-      ]
     }
   }
 }
